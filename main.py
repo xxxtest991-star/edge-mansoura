@@ -8,7 +8,7 @@ CHECK_INTERVAL = 300
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Edge Mansoura V3 - bebo - LIVE"
+def home(): return "Edge Mansoura V4 - bebo - LIVE"
 
 def send_telegram(msg):
     try:
@@ -23,6 +23,9 @@ def get_data():
         high_50 = df_4h['High'].tail(50).max()
         low_50 = df_4h['Low'].tail(50).min()
         current = df_5m['Close'].iloc[-1]
+        # EMA للـ MA فلتر - اختياري
+        df_5m['EMA50'] = df_5m['Close'].ewm(span=50, adjust=False).mean()
+        df_5m['EMA100'] = df_5m['Close'].ewm(span=100, adjust=False).mean()
         return current, df_5m, high_50, low_50
     except: return None,None,None,None
 
@@ -33,29 +36,49 @@ def rsi(series, p=14):
     rs = gain/loss
     return 100 - (100/(1+rs))
 
+def get_trend_status(price, ema50, ema100):
+    if price > ema50 and ema50 > ema100:
+        return "صاعد 🔼"
+    elif price < ema50 and ema50 < ema100:
+        return "هابط 🔽"
+    else:
+        return "عرضي ↔️"
+
 def check():
     price, df5, high50, low50 = get_data()
     if price is None: return
+
+    # الزونات الديناميكية - بتتغير مع حركة السعر
     sell_bottom = high50 * 0.985
     sell_top = high50 * 1.002
     buy_bottom = low50 * 0.998
     buy_top = low50 * 1.015
+
     rsi_val = rsi(df5['Close']).iloc[-1]
+    last = df5.iloc[-1]
+    ema50 = df5['EMA50'].iloc[-1]
+    ema100 = df5['EMA100'].iloc[-1]
+    trend = get_trend_status(price, ema50, ema100)
+
+    # --- اشارة البيع ---
     if sell_bottom <= price <= sell_top and rsi_val > 62:
-        last = df5.iloc[-1]
         wick = last['High'] - max(last['Open'], last['Close'])
         body = abs(last['Close']-last['Open']) + 0.01
         if wick > body * 0.5:
-            send_telegram(f"🔴 بيع V3 {price:.2f} قمة {high50:.0f} RSI {rsi_val:.1f}")
+            # هل هي مع الترند ولا عكسه؟
+            tag = "مع الترند ✅" if "هابط" in trend else "عكس الترند ⚠️"
+            send_telegram(f"🔴 بيع V4 {price:.2f}\nقمة {high50:.0f} زون {sell_bottom:.0f}-{sell_top:.0f}\nRSI {rsi_val:.1f} | ترند {trend}\nالحالة: {tag}\nEMA50 {ema50:.1f} / EMA100 {ema100:.1f}")
+
+    # --- اشارة الشراء ---
     if buy_bottom <= price <= buy_top and rsi_val < 38:
-        last = df5.iloc[-1]
         wick = min(last['Open'], last['Close']) - last['Low']
         body = abs(last['Close']-last['Open']) + 0.01
         if wick > body * 0.5:
-            send_telegram(f"🟢 شراء V3 {price:.2f} قاع {low50:.0f} RSI {rsi_val:.1f}")
+            tag = "مع الترند ✅" if "صاعد" in trend else "عكس الترند ⚠️"
+            send_telegram(f"🟢 شراء V4 {price:.2f}\nقاع {low50:.0f} زون {buy_bottom:.0f}-{buy_top:.0f}\nRSI {rsi_val:.1f} | ترند {trend}\nالحالة: {tag}\nEMA50 {ema50:.1f} / EMA100 {ema100:.1f}")
 
 def loop():
-    send_telegram("🚀 V3 اشتغل يا بيبو ID: 8603649187")
+    send_telegram("🚀 V4 اشتغل يا بيبو - زون ديناميك + فلتر ترند اختياري ID: 8603649187")
     while True:
         try: check()
         except: pass
